@@ -1,0 +1,82 @@
+name: Deploy Backend a EC2
+
+on:
+  push:
+    branches:
+      - deploy
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: Configurar AWS
+        uses: aws-actions/configure-aws-credentials@v2
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
+          aws-region: us-east-1
+      - name: Login a Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v1
+      - name: Build y Push Ventas
+        env:
+          REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          REPOSITORY: back-ventas
+          IMAGE_TAG: latest
+        run: |
+          cd back-Ventas_SpringBoot
+          if [ -d "Springboot-API-REST" ]; then cd Springboot-API-REST; fi
+          docker build -t $REGISTRY/$REPOSITORY:$IMAGE_TAG .
+          docker push $REGISTRY/$REPOSITORY:$IMAGE_TAG
+      - name: Build y Push Despachos
+        env:
+          REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          REPOSITORY: back-despachos
+          IMAGE_TAG: latest
+        run: |
+          cd back-Despachos_SpringBoot
+          if [ -d "Springboot-API-REST-DESPACHO" ]; then cd Springboot-API-REST-DESPACHO; fi
+          docker build -t $REGISTRY/$REPOSITORY:$IMAGE_TAG .
+          docker push $REGISTRY/$REPOSITORY:$IMAGE_TAG
+      - name: Despliegue en EC2 Backend
+        uses: appleboy/ssh-action@master
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ubuntu
+          key: ${{ secrets.EC2_SSH_KEY }}
+          script: |
+            aws ecr get-login-password --region us-east-1 | sudo docker login --username AWS --password-stdin ${{ steps.login-ecr.outputs.registry }}
+            cat << 'EOF' > docker-compose.yml
+            version: '3.8'
+            services:
+              db:
+                image: mysql:8.0
+                container_name: db_cordillera
+                environment:
+                  MYSQL_ROOT_PASSWORD: root
+                  MYSQL_DATABASE: cordillera_db
+                ports:
+                  - "3306:3306"
+                volumes:
+                  - db_data:/var/lib/mysql
+              api-ventas:
+                image: ${{ steps.login-ecr.outputs.registry }}/back-ventas:latest
+                container_name: backend_ventas
+                ports:
+                  - "8080:8080"
+                depends_on:
+                  - db
+              api-despachos:
+                image: ${{ steps.login-ecr.outputs.registry }}/back-despachos:latest
+                container_name: backend_despachos
+                ports:
+                  - "8081:8080"
+                depends_on:
+                  - db
+            volumes:
+              db_data:
+            EOF
+            sudo docker-compose pull
+            sudo docker-compose up -d
