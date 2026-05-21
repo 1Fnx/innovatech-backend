@@ -21,7 +21,6 @@ jobs:
         id: login-ecr
         uses: aws-actions/amazon-ecr-login@v1
         
-      # NUEVO PASO: Obtener la contraseña desde GitHub en vez de EC2
       - name: Obtener Password ECR
         id: ecr-pwd
         run: echo "password=$(aws ecr get-login-password --region us-east-1)" >> $GITHUB_OUTPUT
@@ -57,10 +56,10 @@ jobs:
           host: ${{ secrets.EC2_HOST }}
           username: ubuntu
           key: ${{ secrets.EC2_SSH_KEY }}
-          envs: ECR_REGISTRY, ECR_PASSWORD # Pasamos las variables al servidor
+          envs: ECR_REGISTRY, ECR_PASSWORD
           script: |
             echo $ECR_PASSWORD | sudo docker login --username AWS --password-stdin $ECR_REGISTRY
-            cat << 'EOF' > docker-compose.yml
+            cat << EOF > docker-compose.yml
             version: '3.8'
             services:
               db:
@@ -74,14 +73,14 @@ jobs:
                 volumes:
                   - db_data:/var/lib/mysql
               api-ventas:
-                image: ${{ steps.login-ecr.outputs.registry }}/back-ventas:latest
+                image: $ECR_REGISTRY/back-ventas:latest
                 container_name: backend_ventas
                 ports:
                   - "8080:8080"
                 depends_on:
                   - db
               api-despachos:
-                image: ${{ steps.login-ecr.outputs.registry }}/back-despachos:latest
+                image: $ECR_REGISTRY/back-despachos:latest
                 container_name: backend_despachos
                 ports:
                   - "8081:8080"
